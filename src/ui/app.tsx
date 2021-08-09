@@ -249,7 +249,7 @@ export function App() {
             <select onChange={e => setCandidateInputValue(e.target.value)}>
             <option selected value="Rama">Rama</option>
             <option  value="Nick">Nick</option>
-            <option  value="Joe">Joe</option>
+            <option  value="Jose">Jose</option>
 
             </select>
             <button onClick={voteForCandidate} disabled={!contract}>
