@@ -9,6 +9,8 @@ import 'react-toastify/dist/ReactToastify.css';
 import { PolyjuiceHttpProvider } from '@polyjuice-provider/web3';
 import { AddressTranslator } from 'nervos-godwoken-integration';
 import { VotingWrapper } from '../lib/contracts/VotingWrapper';
+import { SudtERC20Wrapper } from '../lib/contracts/SudtERC20Wrapper';
+
 
 import { CONFIG } from '../config';
 
@@ -46,12 +48,17 @@ interface Candidate {
 export function App() {
     const [web3, setWeb3] = useState<Web3>(null);
     const [contract, setContract] = useState<VotingWrapper>();
+    const [contractSUDT, setContractSUDT] = useState<SudtERC20Wrapper>();
+    const [contractCKETH, setContractCKETH] = useState<SudtERC20Wrapper>();
     const [accounts, setAccounts] = useState<string[]>();
     const [l2Balance, setL2Balance] = useState<bigint>();
+    const [sudtBalance, setSUDTBalance] = useState<bigint>();
+    const [ckethBalance, setCKETHBalance] = useState<bigint>();
     const [existingContractIdInputValue, setExistingContractIdInputValue] = useState<string>();
     const [candidates, setCandidates] = useState<Candidate[] | undefined>();
     const [deployTxHash, setDeployTxHash] = useState<string | undefined>();
     const [polyjuiceAddress, setPolyjuiceAddress] = useState<string | undefined>();
+    const [Layer2DepositAddress, setLayer2DepositValue] = useState<string | undefined>();
     const [transactionInProgress, setTransactionInProgress] = useState(false);
     const toastId = React.useRef(null);
     const [candidateInputValue, setCandidateInputValue] = useState<
@@ -62,10 +69,13 @@ export function App() {
         if (accounts?.[0]) {
             const addressTranslator = new AddressTranslator();
             setPolyjuiceAddress(addressTranslator.ethAddressToGodwokenShortAddress(accounts?.[0]));
+            getDepositAddress();
         } else {
             setPolyjuiceAddress(undefined);
         }
+        
     }, [accounts?.[0]]);
+    
 
     useEffect(() => {
         if (transactionInProgress && !toastId.current) {
@@ -89,7 +99,6 @@ export function App() {
     }, [transactionInProgress, toastId.current]);
 
     const account = accounts?.[0];
-
     async function deployContract() {
         const _contract = new VotingWrapper(web3);
 
@@ -114,7 +123,26 @@ export function App() {
             setTransactionInProgress(false);
         }
     }
-
+    async function getSUDTBalance() {
+        setSUDTBalance(null);
+        const value = await contractSUDT.getSUDTBalance(polyjuiceAddress,account);
+        setSUDTBalance(value);
+    }
+    async function getCKETHBalance() {
+        setCKETHBalance(null);
+        const value = await contractCKETH.getSUDTBalance(polyjuiceAddress,account);
+        setCKETHBalance(value);
+    }
+    async function getL2Balance() {
+        setL2Balance(null);
+        const value = BigInt(await web3.eth.getBalance(account));
+        setL2Balance(value);
+    }
+    async function getDepositAddress() {
+        const addressTranslator = new AddressTranslator();
+        const Layer2DepositAddressData = await addressTranslator.getLayer2DepositAddress(web3,accounts?.[0]);
+        setLayer2DepositValue(Layer2DepositAddressData.addressString);
+    }
     async function getTotalVotesCandidates() {
         
         let new_candidates = [];
@@ -138,7 +166,13 @@ export function App() {
         setContract(_contract);
         setCandidates(undefined);
     }
-
+    async function copyDepositAddress(){
+        navigator.clipboard.writeText(Layer2DepositAddress);
+        toast(
+            'Copied success.',
+            { type: 'success' }
+        );
+    }
     async function voteForCandidate() {
         try {
             setTransactionInProgress(true);
@@ -166,15 +200,34 @@ export function App() {
         (async () => {
             const _web3 = await createWeb3();
             setWeb3(_web3);
-
+            const _contract = new SudtERC20Wrapper(_web3);
+            _contract.useDeployed(CONFIG.SUDT_CONTRACT);
+    
+            setContractSUDT(_contract);
+            const _contractCKETH = new SudtERC20Wrapper(_web3);
+            _contractCKETH.useDeployed(CONFIG.CKETH_CONTRACT);
+    
+            setContractCKETH(_contractCKETH);
+            
             const _accounts = [(window as any).ethereum.selectedAddress];
             setAccounts(_accounts);
+            const addressTranslator = new AddressTranslator();
+            const _polyjuiceAdress = addressTranslator.ethAddressToGodwokenShortAddress(_accounts[0]);
+            setPolyjuiceAddress(_polyjuiceAdress);
+
+
             console.log({ _accounts });
 
             if (_accounts && _accounts[0]) {
                 const _l2Balance = BigInt(await _web3.eth.getBalance(_accounts[0]));
                 setL2Balance(_l2Balance);
+                const value = await _contract.getSUDTBalance(_polyjuiceAdress,_accounts[0]);
+                setSUDTBalance(value);
+                const valueCKETH = await _contractCKETH.getSUDTBalance(_polyjuiceAdress,_accounts[0]);
+                setCKETHBalance(valueCKETH);
             }
+
+
         })();
     });
 
@@ -188,8 +241,33 @@ export function App() {
             Your Polyjuice address: <b>{polyjuiceAddress || ' - '}</b>
             <br />
             <br />
+            Layer 2 Deposit address:
+            <input
+            type="text" readOnly
+                placeholder="Existing contract id"
+                value={Layer2DepositAddress}
+            />
+            <button onClick={copyDepositAddress} disabled={!Layer2DepositAddress}>Copy Address</button>
+            <a target="_blank" href="https://force-bridge-test.ckbapp.dev/bridge/Ethereum/Nervos?xchain-asset=0x0000000000000000000000000000000000000000">
+            <button  disabled={!Layer2DepositAddress}>Deposit now!</button>
+            </a>
+            <small>* Please input the deposit address above in the "Recipient" input </small>
+            <br />
+            <br />
             Nervos Layer 2 balance:{' '}
             <b>{l2Balance ? (l2Balance / 10n ** 8n).toString() : <LoadingIndicator />} CKB</b>
+            <button onClick={getL2Balance}  disabled={!l2Balance&&!account}>Reload balance</button>
+
+            <br />
+            <br />
+            Nervos SUDT balance:{' '}
+            <b>{sudtBalance ? sudtBalance : <LoadingIndicator />} SUDT</b>
+            <button onClick={getSUDTBalance}   disabled={!sudtBalance&&!account}>Reload balance</button>
+            <br />
+            <br />
+            Nervos ckETH balance:{' '}
+            <b>{ckethBalance ? Number(ckethBalance)/1000000000000000000: <LoadingIndicator />} ckETH</b>
+            <button onClick={getCKETHBalance}   disabled={!ckethBalance&&!account}>Reload balance</button>
             <br />
             <br />
             Deployed contract address: <b>{contract?.address || '-'}</b> <br />
